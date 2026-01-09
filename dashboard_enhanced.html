@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BGP Anomaly Detection - Enhanced Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            padding: 20px;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            padding: 25px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            border: 1px solid #334155;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        
+        h1 {
+            font-size: 28px;
+            color: #f1f5f9;
+            margin-bottom: 5px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            background: #10b981;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .subtitle {
+            color: #94a3b8;
+            font-size: 14px;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .stat-box {
+            background: #1e293b;
+            padding: 24px;
+            border-radius: 12px;
+            border: 1px solid #334155;
+            position: relative;
+            overflow: hidden;
+            transition: transform 0.2s, border-color 0.2s;
+        }
+        
+        .stat-box:hover {
+            transform: translateY(-2px);
+            border-color: #475569;
+        }
+        
+        .stat-box::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+        
+        .stat-value {
+            font-size: 36px;
+            font-weight: bold;
+            color: #f1f5f9;
+            margin-bottom: 5px;
+        }
+        
+        .stat-subtext {
+            font-size: 13px;
+            color: #64748b;
+        }
+        
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .chart-box {
+            background: #1e293b;
+            padding: 24px;
+            border-radius: 12px;
+            border: 1px solid #334155;
+        }
+        
+        .chart-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #f1f5f9;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .chart-icon {
+            width: 20px;
+            height: 20px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .drift-section {
+            background: #1e293b;
+            padding: 24px;
+            border-radius: 12px;
+            border: 1px solid #334155;
+            margin-bottom: 20px;
+        }
+        
+        .drift-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        
+        .drift-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+        
+        .drift-card {
+            background: #0f172a;
+            padding: 16px;
+            border-radius: 8px;
+            border: 1px solid #334155;
+        }
+        
+        .drift-model-name {
+            font-size: 14px;
+            font-weight: 600;
+            color: #f1f5f9;
+            margin-bottom: 8px;
+        }
+        
+        .drift-status {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .drift-healthy {
+            background: rgba(16, 185, 129, 0.2);
+            color: #10b981;
+        }
+        
+        .drift-warning {
+            background: rgba(251, 191, 36, 0.2);
+            color: #fbbf24;
+        }
+        
+        .drift-critical {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+        }
+        
+        .table-box {
+            background: #1e293b;
+            padding: 24px;
+            border-radius: 12px;
+            border: 1px solid #334155;
+            overflow-x: auto;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        th {
+            background: #0f172a;
+            padding: 12px;
+            text-align: left;
+            font-size: 12px;
+            color: #94a3b8;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #334155;
+            font-size: 13px;
+            color: #cbd5e1;
+        }
+        
+        tr:hover {
+            background: #0f172a;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        
+        .badge-ok {
+            background: rgba(16, 185, 129, 0.2);
+            color: #10b981;
+        }
+        
+        .badge-alert {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+        }
+        
+        .footer {
+            text-align: center;
+            color: #64748b;
+            font-size: 12px;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #334155;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #64748b;
+        }
+        
+        .error-message {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid #ef4444;
+            color: #fca5a5;
+            padding: 16px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        
+        @media (max-width: 768px) {
+            .charts-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            body {
+                padding: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>
+            <span class="status-dot"></span>
+            BGP Anomaly Detection System
+        </h1>
+        <p class="subtitle">Real-time network monitoring with AI-powered threat detection</p>
+    </div>
+    
+    <div class="stats-grid">
+        <div class="stat-box">
+            <div class="stat-label">📊 Total Processed</div>
+            <div class="stat-value" id="totalProcessed">-</div>
+            <div class="stat-subtext">Recent records analyzed</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">⚠️ Anomalies Detected</div>
+            <div class="stat-value" id="anomalies" style="color: #ef4444;">-</div>
+            <div class="stat-subtext">Threats identified</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">✓ Normal Traffic</div>
+            <div class="stat-value" id="normal" style="color: #10b981;">-</div>
+            <div class="stat-subtext">Clean network patterns</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">⚡ Processing Rate</div>
+            <div class="stat-value" id="rate">-</div>
+            <div class="stat-subtext">Records per minute</div>
+        </div>
+    </div>
+    
+    <!-- Drift Monitoring Section -->
+    <div class="drift-section">
+        <div class="drift-header">
+            <div class="chart-title">
+                <span class="chart-icon">🔄</span>
+                Model Drift Monitoring
+            </div>
+            <span style="font-size: 12px; color: #64748b;">Self-healing AI system</span>
+        </div>
+        <div class="drift-cards" id="driftCards">
+            <div class="loading">Loading drift status...</div>
+        </div>
+    </div>
+    
+    <div class="charts-grid">
+        <div class="chart-box">
+            <div class="chart-title">
+                <span class="chart-icon">📈</span>
+                Detection Activity Timeline
+            </div>
+            <canvas id="timeChart"></canvas>
+        </div>
+        <div class="chart-box">
+            <div class="chart-title">
+                <span class="chart-icon">🎯</span>
+                Model Performance Breakdown
+            </div>
+            <canvas id="modelChart"></canvas>
+        </div>
+    </div>
+    
+    <div class="charts-grid">
+        <div class="chart-box">
+            <div class="chart-title">
+                <span class="chart-icon">🔥</span>
+                Anomaly Score Distribution
+            </div>
+            <canvas id="scoreChart"></canvas>
+        </div>
+        <div class="chart-box">
+            <div class="chart-title">
+                <span class="chart-icon">📊</span>
+                Detection Count Trend
+            </div>
+            <canvas id="trendChart"></canvas>
+        </div>
+    </div>
+    
+    <div class="table-box">
+        <div class="chart-title">
+            <span class="chart-icon">📋</span>
+            Recent Detection Events
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Timestamp</th>
+                    <th>Peer Address</th>
+                    <th>Heuristic</th>
+                    <th>LSTM</th>
+                    <th>Isolation Forest</th>
+                    <th>Ensemble</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody id="tableBody">
+                <tr><td colspan="7" class="loading">Loading detection data...</td></tr>
+            </tbody>
+        </table>
+    </div>
+    
+    <div class="footer">
+        Last updated: <span id="lastUpdate">-</span> | Auto-refresh: 10 seconds | 
+        <span id="errorStatus"></span>
+    </div>
+
+    <script>
+        let timeChart, modelChart, scoreChart, trendChart;
+        
+        // Chart.js defaults for dark theme
+        Chart.defaults.color = '#94a3b8';
+        Chart.defaults.borderColor = '#334155';
+        
+        function initCharts() {
+            // Time series chart
+            const timeCtx = document.getElementById('timeChart').getContext('2d');
+            timeChart = new Chart(timeCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Avg Score',
+                        data: [],
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 4,
+                        pointHoverRadius: 6,
+                        pointBackgroundColor: '#3b82f6',
+                        pointBorderColor: '#1e293b',
+                        pointBorderWidth: 2,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: '#0f172a',
+                            titleColor: '#f1f5f9',
+                            bodyColor: '#cbd5e1',
+                            borderColor: '#334155',
+                            borderWidth: 1,
+                            padding: 12,
+                            displayColors: false,
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 1,
+                            grid: { color: '#334155' },
+                            ticks: { color: '#94a3b8' }
+                        },
+                        x: {
+                            grid: { color: '#334155' },
+                            ticks: { color: '#94a3b8', maxRotation: 45 }
+                        }
+                    }
+                }
+            });
+            
+            // Model breakdown chart
+            const modelCtx = document.getElementById('modelChart').getContext('2d');
+            modelChart = new Chart(modelCtx, {
+                type: 'bar',
+                data: {
+                    labels: ['Heuristic Rules', 'LSTM Neural Net', 'Isolation Forest'],
+                    datasets: [{
+                        label: 'Normal',
+                        data: [0, 0, 0],
+                        backgroundColor: '#10b981',
+                        borderRadius: 6,
+                    }, {
+                        label: 'Anomaly',
+                        data: [0, 0, 0],
+                        backgroundColor: '#ef4444',
+                        borderRadius: 6,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            labels: { color: '#94a3b8', padding: 15 }
+                        },
+                        tooltip: {
+                            backgroundColor: '#0f172a',
+                            titleColor: '#f1f5f9',
+                            bodyColor: '#cbd5e1',
+                            borderColor: '#334155',
+                            borderWidth: 1,
+                            padding: 12,
+                        }
+                    },
+                    scales: {
+                        x: {
+                            stacked: true,
+                            grid: { display: false },
+                            ticks: { color: '#94a3b8' }
+                        },
+                        y: {
+                            stacked: true,
+                            beginAtZero: true,
+                            grid: { color: '#334155' },
+                            ticks: { color: '#94a3b8' }
+                        }
+                    }
+                }
+            });
+            
+            // Score distribution chart (new)
+            const scoreCtx = document.getElementById('scoreChart').getContext('2d');
+            scoreChart = new Chart(scoreCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Low (0-0.3)', 'Medium (0.3-0.6)', 'High (0.6-0.8)', 'Critical (0.8-1.0)'],
+                    datasets: [{
+                        data: [0, 0, 0, 0],
+                        backgroundColor: [
+                            '#10b981',
+                            '#fbbf24',
+                            '#f97316',
+                            '#ef4444'
+                        ],
+                        borderColor: '#1e293b',
+                        borderWidth: 2,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: { color: '#94a3b8', padding: 15 }
+                        },
+                        tooltip: {
+                            backgroundColor: '#0f172a',
+                            titleColor: '#f1f5f9',
+                            bodyColor: '#cbd5e1',
+                            borderColor: '#334155',
+                            borderWidth: 1,
+                            padding: 12,
+                        }
+                    }
+                }
+            });
+            
+            // Trend chart (new)
+            const trendCtx = document.getElementById('trendChart').getContext('2d');
+            trendChart = new Chart(trendCtx, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Detections',
+                        data: [],
+                        backgroundColor: '#8b5cf6',
+                        borderRadius: 6,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: '#0f172a',
+                            titleColor: '#f1f5f9',
+                            bodyColor: '#cbd5e1',
+                            borderColor: '#334155',
+                            borderWidth: 1,
+                            padding: 12,
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: '#334155' },
+                            ticks: { color: '#94a3b8' }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#94a3b8' }
+                        }
+                    }
+                }
+            });
+        }
+        
+        async function updateDriftStatus() {
+            try {
+                const drift = await fetch('http://localhost:8000/api/drift-status').then(r => r.json());
+                
+                // Create drift cards
+                const driftCards = document.getElementById('driftCards');
+                
+                const models = ['lstm', 'isolation_forest', 'heuristic'];
+                const modelNames = {
+                    'lstm': 'LSTM Neural Network',
+                    'isolation_forest': 'Isolation Forest',
+                    'heuristic': 'Heuristic Rules'
+                };
+                
+                // Check for recent flags
+                const recentFlags = drift.drift_flags.filter(f => {
+                    const age = Date.now() - new Date(f.timestamp).getTime();
+                    return age < 24 * 60 * 60 * 1000; // Last 24 hours
+                });
+                
+                driftCards.innerHTML = models.map(model => {
+                    const hasFlag = recentFlags.some(f => f.model.toLowerCase() === model);
+                    const status = hasFlag ? 'drift-warning' : 'drift-healthy';
+                    const statusText = hasFlag ? 'Drift Detected' : 'Healthy';
+                    
+                    return `
+                        <div class="drift-card">
+                            <div class="drift-model-name">${modelNames[model]}</div>
+                            <div class="drift-status ${status}">${statusText}</div>
+                            <div style="margin-top: 8px; font-size: 12px; color: #64748b;">
+                                ${hasFlag ? 'Retraining triggered' : 'Operating normally'}
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                
+            } catch (error) {
+                console.error('Drift status error:', error);
+                document.getElementById('driftCards').innerHTML = `
+                    <div class="error-message">
+                        Unable to load drift monitoring data. Ensure database tables exist.
+                    </div>
+                `;
+            }
+        }
+        
+        async function update() {
+            try {
+                document.getElementById('errorStatus').textContent = '';
+                
+                // Get live stats
+                const stats = await fetch('http://localhost:8000/api/live-stats').then(r => r.json());
+                
+                document.getElementById('totalProcessed').textContent = stats.processing.total_processed;
+                document.getElementById('anomalies').textContent = stats.processing.anomalies;
+                document.getElementById('normal').textContent = stats.processing.normal;
+                document.getElementById('rate').textContent = stats.rate_per_minute.toFixed(1);
+                
+                // Update model chart
+                modelChart.data.datasets[0].data = [
+                    stats.models.heuristic.normal,
+                    stats.models.lstm.normal,
+                    stats.models.isolation_forest.normal
+                ];
+                modelChart.data.datasets[1].data = [
+                    stats.models.heuristic.anomalies,
+                    stats.models.lstm.anomalies,
+                    stats.models.isolation_forest.anomalies
+                ];
+                modelChart.update('none');
+                
+                // Get time series
+                const timeSeries = await fetch('http://localhost:8000/api/time-series').then(r => r.json());
+                
+                const times = timeSeries.data.map(d => new Date(d.timestamp).toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit'})).reverse();
+                const scores = timeSeries.data.map(d => d.avg_score).reverse();
+                const counts = timeSeries.data.map(d => d.anomaly_count).reverse();
+                
+                // Update time chart
+                timeChart.data.labels = times;
+                timeChart.data.datasets[0].data = scores;
+                timeChart.update('none');
+                
+                // Update trend chart
+                trendChart.data.labels = times;
+                trendChart.data.datasets[0].data = counts;
+                trendChart.update('none');
+                
+                // Update score distribution
+                const allScores = timeSeries.data.map(d => d.avg_score);
+                const low = allScores.filter(s => s < 0.3).length;
+                const medium = allScores.filter(s => s >= 0.3 && s < 0.6).length;
+                const high = allScores.filter(s => s >= 0.6 && s < 0.8).length;
+                const critical = allScores.filter(s => s >= 0.8).length;
+                
+                scoreChart.data.datasets[0].data = [low, medium, high, critical];
+                scoreChart.update('none');
+                
+                // Get recent detections
+                const detections = await fetch('http://localhost:8000/api/recent-detections?limit=10').then(r => r.json());
+                
+                const tbody = document.getElementById('tableBody');
+                tbody.innerHTML = detections.detections.map(d => `
+                    <tr>
+                        <td>${new Date(d.timestamp).toLocaleString()}</td>
+                        <td style="font-family: monospace; font-size: 11px;">${d.peer}</td>
+                        <td>${d.heuristic.score !== null ? d.heuristic.score.toFixed(3) : '-'}</td>
+                        <td>${d.lstm.score !== null ? d.lstm.score.toFixed(3) : '-'}</td>
+                        <td>${d.isolation_forest.score !== null ? d.isolation_forest.score.toFixed(3) : '-'}</td>
+                        <td><strong>${d.ensemble.score.toFixed(3)}</strong></td>
+                        <td>
+                            <span class="badge ${d.ensemble.anomaly ? 'badge-alert' : 'badge-ok'}">
+                                ${d.ensemble.anomaly ? '⚠️ ANOMALY' : '✓ NORMAL'}
+                            </span>
+                        </td>
+                    </tr>
+                `).join('');
+                
+                document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+                
+            } catch (error) {
+                console.error('Update error:', error);
+                document.getElementById('errorStatus').textContent = '⚠️ Connection Error';
+                document.getElementById('errorStatus').style.color = '#ef4444';
+            }
+        }
+        
+        // Initialize
+        initCharts();
+        update();
+        updateDriftStatus();
+        
+        // Auto-refresh
+        setInterval(update, 10000);
+        setInterval(updateDriftStatus, 30000); // Drift status every 30 seconds
+    </script>
+</body>
+</html>

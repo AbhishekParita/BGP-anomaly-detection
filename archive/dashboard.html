@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BGP Anomaly Detection Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            color: white;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            transition: transform 0.3s ease;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .stat-card h3 {
+            color: #666;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+        }
+        
+        .stat-card .value {
+            color: #667eea;
+            font-size: 2.5em;
+            font-weight: bold;
+        }
+        
+        .alerts-section {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        
+        .alerts-section h2 {
+            color: #333;
+            margin-bottom: 20px;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 10px;
+        }
+        
+        .alert-item {
+            background: #f8f9fa;
+            border-left: 4px solid #dc3545;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 5px;
+        }
+        
+        .alert-item.warning {
+            border-left-color: #ffc107;
+        }
+        
+        .alert-item.info {
+            border-left-color: #17a2b8;
+        }
+        
+        .alert-title {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 5px;
+        }
+        
+        .alert-time {
+            color: #999;
+            font-size: 0.85em;
+        }
+        
+        .status {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        
+        .status.healthy {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .status.warning {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .refresh-btn {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 50px;
+            font-size: 1em;
+            cursor: pointer;
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+            transition: all 0.3s ease;
+        }
+        
+        .refresh-btn:hover {
+            background: #5568d3;
+            transform: scale(1.05);
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 50px;
+            color: white;
+            font-size: 1.5em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🛡️ BGP Anomaly Detection Dashboard</h1>
+        
+        <div id="loading" class="loading">Loading data...</div>
+        
+        <div id="content" style="display: none;">
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <h3>System Status</h3>
+                    <div id="systemStatus" class="status healthy">Healthy</div>
+                </div>
+                
+                <div class="stat-card">
+                    <h3>Total Alerts</h3>
+                    <div id="totalAlerts" class="value">0</div>
+                </div>
+                
+                <div class="stat-card">
+                    <h3>Detections</h3>
+                    <div id="totalDetections" class="value">0</div>
+                </div>
+                
+                <div class="stat-card">
+                    <h3>Anomaly Rate</h3>
+                    <div id="anomalyRate" class="value">0%</div>
+                </div>
+                
+                <div class="stat-card">
+                    <h3>Active Peers</h3>
+                    <div id="activePeers" class="value">0</div>
+                </div>
+            </div>
+            
+            <div class="alerts-section">
+                <h2>📢 Recent Alerts</h2>
+                <div id="alertsList"></div>
+            </div>
+        </div>
+        
+        <button class="refresh-btn" onclick="loadData()">🔄 Refresh</button>
+    </div>
+    
+    <script>
+        const API_BASE = 'http://localhost:8000/api';
+        
+        async function loadData() {
+            try {
+                document.getElementById('loading').style.display = 'block';
+                document.getElementById('content').style.display = 'none';
+                
+                // Fetch statistics
+                const statsResponse = await fetch(`${API_BASE}/statistics`);
+                const stats = await statsResponse.json();
+                
+                document.getElementById('totalAlerts').textContent = stats.total_alerts || 0;
+                document.getElementById('totalDetections').textContent = stats.total_detections || 0;
+                document.getElementById('anomalyRate').textContent = 
+                    (stats.anomaly_rate || 0).toFixed(1) + '%';
+                document.getElementById('activePeers').textContent = stats.active_peers || 0;
+                
+                // Fetch health status
+                const healthResponse = await fetch(`${API_BASE}/health`);
+                const health = await healthResponse.json();
+                
+                const statusEl = document.getElementById('systemStatus');
+                statusEl.textContent = health.status;
+                statusEl.className = 'status ' + (health.status === 'healthy' ? 'healthy' : 'warning');
+                
+                // Fetch recent alerts
+                const alertsResponse = await fetch(`${API_BASE}/alerts?limit=10`);
+                const alerts = await alertsResponse.json();
+                
+                const alertsList = document.getElementById('alertsList');
+                if (alerts.length === 0) {
+                    alertsList.innerHTML = '<p style="color: #999; text-align: center;">No recent alerts</p>';
+                } else {
+                    alertsList.innerHTML = alerts.map(alert => `
+                        <div class="alert-item ${getSeverityClass(alert.severity)}">
+                            <div class="alert-title">${alert.title || alert.alert_type}</div>
+                            <div>${alert.description || 'No description'}</div>
+                            <div class="alert-time">
+                                ${alert.peer_addr || 'Unknown peer'} | 
+                                ${alert.prefix || 'No prefix'} | 
+                                Severity: ${alert.severity}
+                            </div>
+                        </div>
+                    `).join('');
+                }
+                
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('content').style.display = 'block';
+                
+            } catch (error) {
+                document.getElementById('loading').innerHTML = 
+                    '<p style="color: #ff6b6b;">⚠️ Error: Could not connect to API. Make sure API server is running on port 8000.</p>';
+                console.error('Error loading data:', error);
+            }
+        }
+        
+        function getSeverityClass(severity) {
+            if (severity === 'critical' || severity === 'high') return '';
+            if (severity === 'medium' || severity === 'warning') return 'warning';
+            return 'info';
+        }
+        
+        // Load data on page load
+        loadData();
+        
+        // Auto-refresh every 30 seconds
+        setInterval(loadData, 30000);
+    </script>
+</body>
+</html>

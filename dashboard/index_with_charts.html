@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BGP Anomaly Detection Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        header {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            color: #333;
+            font-size: 24px;
+        }
+
+        .subtitle {
+            color: #666;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .stat-label {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            color: #333;
+            font-size: 32px;
+            font-weight: bold;
+        }
+
+        .charts-section {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .chart-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .chart-title {
+            font-size: 18px;
+            color: #333;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #eee;
+        }
+
+        .content-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 20px;
+        }
+
+        .panel {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .panel-title {
+            font-size: 18px;
+            color: #333;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #eee;
+        }
+
+        .alert-item {
+            padding: 12px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            border-left: 4px solid #ccc;
+        }
+
+        .alert-critical { border-left-color: #c00; background: #fee; }
+        .alert-high { border-left-color: #c60; background: #ffe; }
+        .alert-medium { border-left-color: #06c; background: #fef; }
+        .alert-low { border-left-color: #060; background: #efe; }
+
+        .alert-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+        }
+
+        .alert-type {
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        .alert-peer {
+            color: #666;
+            font-size: 12px;
+            margin-bottom: 5px;
+        }
+
+        .alert-desc {
+            font-size: 13px;
+            color: #444;
+        }
+
+        .refresh-btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-top: 10px;
+        }
+
+        .refresh-btn:hover {
+            background: #0056b3;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .last-updated {
+            color: #999;
+            font-size: 12px;
+            text-align: right;
+            margin-top: 10px;
+        }
+
+        @media (max-width: 1200px) {
+            .charts-section {
+                grid-template-columns: 1fr;
+            }
+            .content-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>BGP Anomaly Detection Dashboard</h1>
+            <div class="subtitle">Real-time monitoring of BGP route anomalies and security threats</div>
+        </header>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Total Alerts</div>
+                <div class="stat-value" id="total-alerts">--</div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-label">Total Detections</div>
+                <div class="stat-value" id="total-detections">--</div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-label">Anomaly Rate</div>
+                <div class="stat-value" id="anomaly-rate">--%</div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-label">Active Peers</div>
+                <div class="stat-value" id="active-peers">--</div>
+            </div>
+        </div>
+
+        <!-- Charts Section -->
+        <div class="charts-section">
+            <div class="chart-container">
+                <div class="chart-title">Alert Severity Distribution</div>
+                <canvas id="severityChart"></canvas>
+            </div>
+
+            <div class="chart-container">
+                <div class="chart-title">Alerts by Type</div>
+                <canvas id="typeChart"></canvas>
+            </div>
+        </div>
+
+        <div class="content-grid">
+            <div class="panel">
+                <div class="panel-title">Recent Alerts</div>
+                <div id="alerts-container" class="loading">Loading alerts...</div>
+                <button class="refresh-btn" onclick="loadData()">Refresh</button>
+                <div class="last-updated" id="alerts-updated"></div>
+            </div>
+
+            <div class="panel">
+                <div class="chart-container">
+                    <div class="chart-title">Detection Models Performance</div>
+                    <canvas id="modelsChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000/api';
+        let severityChart, typeChart, modelsChart;
+
+        // Initialize charts
+        function initCharts() {
+            // Severity Distribution Pie Chart
+            const severityCtx = document.getElementById('severityChart').getContext('2d');
+            severityChart = new Chart(severityCtx, {
+                type: 'pie',
+                data: {
+                    labels: ['Critical', 'High', 'Medium', 'Low'],
+                    datasets: [{
+                        data: [0, 0, 0, 0],
+                        backgroundColor: [
+                            '#dc3545',
+                            '#ff9800',
+                            '#2196F3',
+                            '#4caf50'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+
+            // Alert Type Bar Chart
+            const typeCtx = document.getElementById('typeChart').getContext('2d');
+            typeChart = new Chart(typeCtx, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Count',
+                        data: [],
+                        backgroundColor: '#667eea'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                stepSize: 1
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    }
+                }
+            });
+
+            // Models Performance Bar Chart
+            const modelsCtx = document.getElementById('modelsChart').getContext('2d');
+            modelsChart = new Chart(modelsCtx, {
+                type: 'bar',
+                data: {
+                    labels: ['Heuristic', 'LSTM', 'Isolation Forest'],
+                    datasets: [{
+                        label: 'Detection Rate %',
+                        data: [0, 0, 0],
+                        backgroundColor: [
+                            '#667eea',
+                            '#764ba2',
+                            '#f093fb'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            ticks: {
+                                callback: function(value) {
+                                    return value + '%';
+                                }
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    }
+                }
+            });
+        }
+
+        // Load statistics
+        async function loadStatistics() {
+            try {
+                const response = await fetch(`${API_BASE}/statistics`);
+                const data = await response.json();
+
+                document.getElementById('total-alerts').textContent = data.total_alerts;
+                document.getElementById('total-detections').textContent = data.total_detections;
+                document.getElementById('anomaly-rate').textContent = data.anomaly_rate.toFixed(1) + '%';
+                document.getElementById('active-peers').textContent = data.active_peers;
+
+                // Update models performance chart
+                if (modelsChart && data.total_detections > 0) {
+                    const heuristicRate = (data.heuristic_anomalies / data.total_detections * 100).toFixed(1);
+                    const lstmRate = (data.lstm_anomalies / data.total_detections * 100).toFixed(1);
+                    const ifRate = (data.if_anomalies / data.total_detections * 100).toFixed(1);
+                    
+                    modelsChart.data.datasets[0].data = [heuristicRate, lstmRate, ifRate];
+                    modelsChart.update();
+                }
+            } catch (error) {
+                console.error('Error loading statistics:', error);
+            }
+        }
+
+        // Load alerts and update charts
+        async function loadAlerts() {
+            try {
+                const response = await fetch(`${API_BASE}/alerts?limit=20`);
+                const alerts = await response.json();
+
+                const container = document.getElementById('alerts-container');
+                
+                if (alerts.length === 0) {
+                    container.innerHTML = '<div class="loading">No alerts found</div>';
+                    return;
+                }
+
+                // Update severity chart
+                const severityCounts = { critical: 0, high: 0, medium: 0, low: 0 };
+                alerts.forEach(alert => {
+                    const sev = alert.severity.toLowerCase();
+                    if (severityCounts[sev] !== undefined) {
+                        severityCounts[sev]++;
+                    }
+                });
+                
+                if (severityChart) {
+                    severityChart.data.datasets[0].data = [
+                        severityCounts.critical,
+                        severityCounts.high,
+                        severityCounts.medium,
+                        severityCounts.low
+                    ];
+                    severityChart.update();
+                }
+
+                // Update type chart
+                const typeCounts = {};
+                alerts.forEach(alert => {
+                    typeCounts[alert.alert_type] = (typeCounts[alert.alert_type] || 0) + 1;
+                });
+
+                if (typeChart) {
+                    typeChart.data.labels = Object.keys(typeCounts);
+                    typeChart.data.datasets[0].data = Object.values(typeCounts);
+                    typeChart.update();
+                }
+
+                // Display alerts
+                container.innerHTML = alerts.map(alert => `
+                    <div class="alert-item alert-${alert.severity.toLowerCase()}">
+                        <div class="alert-header">
+                            <div class="alert-type">${alert.alert_type}</div>
+                        </div>
+                        <div class="alert-peer">Peer: ${alert.peer_addr}</div>
+                        <div class="alert-desc">${alert.description || 'No description'}</div>
+                        <div class="alert-peer" style="margin-top: 5px;">
+                            Score: ${alert.final_score.toFixed(3)} | Severity: ${alert.severity}
+                        </div>
+                    </div>
+                `).join('');
+
+                document.getElementById('alerts-updated').textContent = 
+                    `Last updated: ${new Date().toLocaleTimeString()}`;
+            } catch (error) {
+                console.error('Error loading alerts:', error);
+                document.getElementById('alerts-container').innerHTML = 
+                    '<div class="loading">Error loading alerts. Check console.</div>';
+            }
+        }
+
+        // Load all data
+        async function loadData() {
+            await loadStatistics();
+            await loadAlerts();
+        }
+
+        // Initialize and start
+        window.onload = function() {
+            initCharts();
+            loadData();
+            // Auto-refresh every 30 seconds
+            setInterval(loadData, 30000);
+        };
+    </script>
+</body>
+</html>

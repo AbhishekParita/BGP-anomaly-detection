@@ -1,0 +1,20 @@
+{
+  "version": "3.0_optimized_manual",
+  "weights": {
+    "if": 0.5,
+    "lstm": 0.5
+  },
+  "thresholds": {
+    "critical": 2.5358596501968025,
+    "high": 2.139631579853552,
+    "medium": 1.8226491235789515,
+    "low": 1.5849122813730014
+  },
+  "metrics": {
+    "total_samples": 32391,
+    "critical_count": 502,
+    "high_count": 269,
+    "model_agreement_count": 237,
+    "high_confidence_count": 216
+  }
+}

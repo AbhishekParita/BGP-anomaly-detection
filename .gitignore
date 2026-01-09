@@ -1,0 +1,75 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environments
+venv/
+venv_wsl/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Data Files
+raw_data/
+data/
+datasetfiles/
+*.csv
+*.pkl
+*.h5
+*.weights.h5
+
+# Model Artifacts & Outputs
+model_artifacts/
+model_output/
+testing_run/
+ensemble_plots/
+anomaly_detection_evaluation/
+
+# Kafka
+kafka_*/
+*.tgz
+*.tgz.*
+
+# Logs
+logs/
+*.log
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Private Configuration (contains passwords/credentials)
+config.py
+db_connector.py
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Jupyter Notebooks checkpoints
+.ipynb_checkpoints/
+
+# Personal Documentation (not for public)
+*_README.md
+notes.txt
+TODO.txt
+
+# Routinator
+routinator/
+
+# Environment variables
+.env
+.env.local

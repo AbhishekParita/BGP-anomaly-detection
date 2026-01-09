@@ -1,0 +1,38 @@
+# requirements.txt
+# ==============================================================================
+# Optimized for Python 3.12 (Recommended)
+# All libraries fully compatible with Python 3.9, 3.10, 3.11, 3.12
+# ==============================================================================
+
+# --- Database & Environment (REQUIRED FOR PHASE 1) ---
+psycopg2-binary>=2.9.0
+python-dotenv>=1.0.0
+
+# --- Data Handling & Processing ---
+pandas>=2.0.0
+numpy>=1.24.0,<2.0.0
+
+# --- Machine Learning Libraries ---
+# TensorFlow for LSTM model inference (Python 3.9-3.12)
+tensorflow>=2.15.0,<2.17.0
+
+# Scikit-learn for Isolation Forest and preprocessing
+scikit-learn>=1.3.0
+joblib>=1.3.0
+
+# --- Visualization ---
+matplotlib>=3.7.0
+seaborn>=0.13.0
+
+# --- Web Framework (for Phase 5 - FastAPI backend) ---
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.0.0
+
+# --- WebSocket Support (for Phase 2 - RIS Live collector) ---
+websockets>=12.0
+aiohttp>=3.9.0
+
+# --- Additional Utilities ---
+python-json-logger>=2.0.0
+pyyaml>=6.0

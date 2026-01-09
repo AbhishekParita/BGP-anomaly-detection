@@ -1,0 +1,38 @@
+{
+  "ris_live": {
+    "max_messages": 10000,
+    "max_runtime_hours": 24,
+    "reconnect_attempts": 3,
+    "message_rate_limit_per_second": 100,
+    "batch_size": 50
+  },
+  "database": {
+    "max_bgp_announcements": 50000,
+    "max_raw_bgp_records": 100000,
+    "max_alerts": 10000,
+    "cleanup_older_than_days": 30,
+    "auto_cleanup_enabled": true,
+    "cleanup_interval_hours": 6
+  },
+  "test_data_generator": {
+    "enabled": true,
+    "max_records": 1000,
+    "interval_seconds": 3,
+    "auto_stop_after_hours": 1
+  },
+  "ml_inference": {
+    "batch_size": 100,
+    "max_queue_size": 1000,
+    "processing_interval_seconds": 60
+  },
+  "memory": {
+    "max_memory_mb": 2048,
+    "warning_threshold_mb": 1536,
+    "clear_cache_on_threshold": true
+  },
+  "logging": {
+    "max_log_size_mb": 100,
+    "backup_count": 5,
+    "level": "INFO"
+  }
+}
