@@ -24,6 +24,7 @@ from sklearn.preprocessing import StandardScaler
 import joblib
 from dotenv import load_dotenv
 import json
+import time
 
 logging.basicConfig(
     level=logging.INFO,
@@ -47,17 +48,27 @@ class IFRetrainer:
             'port': os.getenv('DB_PORT', '5432')
         }
         
-        # Model paths
+        # Model paths with timestamp
+        self.timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         self.model_dir = "model_artifacts"
-        self.old_model_path = f"{self.model_dir}/iso_forest_bgp_production.pkl"
-        self.new_model_path = f"{self.model_dir}/iso_forest_bgp_production_new.pkl"
-        self.backup_path = f"{self.model_dir}/iso_forest_bgp_production_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pkl"
+        self.history_dir = f"{self.model_dir}/history"
+        os.makedirs(self.history_dir, exist_ok=True)
+        
+        # New timestamped model paths
+        self.new_model_path = f"{self.history_dir}/iso_forest_{self.timestamp}.pkl"
+        self.new_metadata_path = f"{self.history_dir}/iso_forest_{self.timestamp}_metadata.json"
+        
+        # Production model paths (for hot-swap)
+        self.prod_model_path = f"{self.model_dir}/iso_forest_bgp_production.pkl"
+        self.prod_metadata_path = f"{self.model_dir}/iso_forest_metadata.json"
         
         # Training config
         self.training_days = 7
         self.contamination = 0.01
         self.n_estimators = 200
         self.max_samples = 5000
+        self.training_start_time = None
+        self.training_end_time = None
         
     def extract_training_data(self) -> pd.DataFrame:
         """Extract recent BGP features for training"""
@@ -126,28 +137,106 @@ class IFRetrainer:
         """Replace old model with new model (hot swap)"""
         logger.info("Performing hot swap...")
         
-        # Backup old model
-        if os.path.exists(self.old_model_path):
+        # Backup current production model
+        if os.path.exists(self.prod_model_path):
             import shutil
-            shutil.copy2(self.old_model_path, self.backup_path)
-            logger.info(f"✅ Old model backed up: {self.backup_path}")
+            backup_path = f"{self.model_dir}/iso_forest_backup_{self.timestamp}.pkl"
+            shutil.copy2(self.prod_model_path, backup_path)
+            logger.info(f"✅ Production model backed up: {backup_path}")
         
-        # Replace with new model
+        # Copy new model to production
         import shutil
-        shutil.move(self.new_model_path, self.old_model_path)
-        logger.info(f"✅ New model activated: {self.old_model_path}")
+        shutil.copy2(self.new_model_path, self.prod_model_path)
+        logger.info(f"✅ New model activated: {self.prod_model_path}")
         
-        # Remove retraining flag
+        # Copy metadata to production
+        if os.path.exists(self.new_metadata_path):
+            shutil.copy2(self.new_metadata_path, self.prod_metadata_path)
+            logger.info(f"✅ Metadata updated")
+        
+        # Remove retraining flag if exists
         flag_path = f"{self.model_dir}/retrain_isolation_forest.flag"
         if os.path.exists(flag_path):
             os.remove(flag_path)
             logger.info("✅ Retraining flag removed")
+    
+    def save_metadata(self, metrics: Dict, training_info: dict) -> dict:
+        """Save comprehensive metadata JSON"""
+        logger.info("Saving metadata...")
+        
+        # Get previous model info
+        previous_model = None
+        if os.path.exists(self.prod_metadata_path):
+            try:
+                with open(self.prod_metadata_path, 'r') as f:
+                    prev_meta = json.load(f)
+                    previous_model = prev_meta.get('model_file', 'unknown')
+            except:
+                pass
+        
+        # Read drift report if exists
+        drift_info = {}
+        drift_files = [f for f in os.listdir('model_artifacts') if f.startswith('drift_report_isolation_forest_')]
+        if drift_files:
+            latest_drift = sorted(drift_files)[-1]
+            try:
+                with open(f"model_artifacts/{latest_drift}", 'r') as f:
+                    drift_data = json.load(f)
+                    drift_info = {
+                        'score_shift': drift_data.get('metrics', {}).get('score_shift'),
+                        'anomaly_rate_change': drift_data.get('metrics', {}).get('anomaly_rate_change'),
+                        'reasons': drift_data.get('reasons', [])
+                    }
+            except:
+                pass
+        
+        metadata = {
+            'model_name': 'isolation_forest',
+            'model_file': f'iso_forest_{self.timestamp}.pkl',
+            'retrained_at': self.training_start_time.isoformat(),
+            'training_completed_at': self.training_end_time.isoformat(),
+            'training_duration_seconds': int((self.training_end_time - self.training_start_time).total_seconds()),
+            'training_data': {
+                'samples': training_info['samples'],
+                'date_range_start': training_info['date_range'][0],
+                'date_range_end': training_info['date_range'][1],
+                'training_days': self.training_days
+            },
+            'model_config': {
+                'type': 'IsolationForest',
+                'n_estimators': self.n_estimators,
+                'contamination': self.contamination,
+                'max_samples': self.max_samples,
+                'random_state': 42
+            },
+            'performance_metrics': {
+                'anomaly_rate': metrics['anomaly_rate'],
+                'mean_score': metrics['mean_score'],
+                'std_score': metrics['std_score'],
+                'score_range_min': metrics['score_range'][0],
+                'score_range_max': metrics['score_range'][1]
+            },
+            'drift_trigger': drift_info if drift_info else {'triggered_by': 'manual'},
+            'retrained_by': os.getenv('USER', 'system'),
+            'previous_model': previous_model,
+            'version': self.timestamp,
+            'status': 'active'
+        }
+        
+        # Save to timestamped file
+        with open(self.new_metadata_path, 'w') as f:
+            json.dump(metadata, f, indent=2)
+        
+        logger.info(f"✅ Metadata saved: {self.new_metadata_path}")
+        return metadata
     
     def run_retraining(self):
         """Execute complete retraining process"""
         logger.info("="*60)
         logger.info("ISOLATION FOREST RETRAINING")
         logger.info("="*60)
+        
+        self.training_start_time = datetime.now()
         
         try:
             # 1. Extract data
@@ -156,6 +245,10 @@ class IFRetrainer:
             if len(df) < 100:
                 logger.error("❌ Insufficient data for retraining")
                 return False
+            
+            # Store date range for metadata
+            date_range = (df.index[0].isoformat() if hasattr(df.index[0], 'isoformat') else 'unknown',
+                         df.index[-1].isoformat() if hasattr(df.index[-1], 'isoformat') else 'unknown')
             
             # 2. Prepare features
             X = df.values
@@ -166,29 +259,31 @@ class IFRetrainer:
             # 4. Validate model
             metrics = self.validate_model(new_model, X)
             
-            # 5. Save new model
+            self.training_end_time = datetime.now()
+            
+            # 5. Save new model with timestamp
             joblib.dump(new_model, self.new_model_path)
             logger.info(f"✅ New model saved: {self.new_model_path}")
             
-            # 6. Save metadata
-            metadata = {
-                'timestamp': datetime.now().isoformat(),
-                'training_samples': len(df),
-                'training_days': self.training_days,
-                'n_estimators': self.n_estimators,
-                'contamination': self.contamination,
-                'validation_metrics': metrics
+            # 6. Save comprehensive metadata
+            training_info = {
+                'samples': len(df),
+                'date_range': date_range
             }
-            
-            with open(f"{self.model_dir}/iso_forest_metadata_new.json", 'w') as f:
-                json.dump(metadata, f, indent=2)
+            metadata = self.save_metadata(metrics, training_info)
             
             # 7. Hot swap
             self.hot_swap_model()
             
+            # 8. Update database drift status
+            self.update_drift_status_db()
+            
             logger.info("="*60)
             logger.info("✅ RETRAINING COMPLETE")
             logger.info("="*60)
+            logger.info(f"Model file: {os.path.basename(self.new_model_path)}")
+            logger.info(f"Metadata: {os.path.basename(self.new_metadata_path)}")
+            logger.info(f"Training duration: {metadata['training_duration_seconds']}s")
             logger.info("Isolation Forest detector will automatically load new model")
             logger.info("on next detection cycle (within 10 seconds)")
             
@@ -196,7 +291,31 @@ class IFRetrainer:
             
         except Exception as e:
             logger.error(f"❌ Retraining failed: {e}")
+            import traceback
+            traceback.print_exc()
             return False
+    
+    def update_drift_status_db(self):
+        """Update drift status in database after successful retraining"""
+        try:
+            conn = psycopg2.connect(**self.db_config)
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                UPDATE drift_status 
+                SET drift_detected = FALSE,
+                    status = 'retrained',
+                    message = 'Model successfully retrained',
+                    retraining_completed_at = %s
+                WHERE model_name = 'isolation_forest';
+            """, (self.training_end_time,))
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+            logger.info("✅ Database drift status updated")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not update database: {e}")
 
 
 if __name__ == "__main__":

@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 import json
+import time
 
 logging.basicConfig(
     level=logging.INFO,
@@ -43,15 +44,25 @@ class HeuristicRetrainer:
             'port': os.getenv('DB_PORT', '5432')
         }
         
-        # Config paths
+        # Config paths with timestamp
+        self.timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         self.config_dir = "model_artifacts"
-        self.old_config_path = f"{self.config_dir}/heuristic_rules.json"
-        self.new_config_path = f"{self.config_dir}/heuristic_rules_new.json"
-        self.backup_path = f"{self.config_dir}/heuristic_rules_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        self.history_dir = f"{self.config_dir}/history"
+        os.makedirs(self.history_dir, exist_ok=True)
+        
+        # New timestamped config paths
+        self.new_config_path = f"{self.history_dir}/heuristic_rules_{self.timestamp}.json"
+        self.new_metadata_path = f"{self.history_dir}/heuristic_rules_{self.timestamp}_metadata.json"
+        
+        # Production config paths (for hot-swap)
+        self.prod_config_path = f"{self.config_dir}/heuristic_rules.json"
+        self.prod_metadata_path = f"{self.config_dir}/heuristic_metadata.json"
         
         # Training config
         self.training_days = 7
         self.percentile = 95  # Use 95th percentile as threshold
+        self.training_start_time = None
+        self.training_end_time = None
         
         # Default thresholds (fallback)
         self.default_rules = {
@@ -153,22 +164,89 @@ class HeuristicRetrainer:
         """Replace old config with new config (hot swap)"""
         logger.info("Performing hot swap...")
         
-        # Backup old config
-        if os.path.exists(self.old_config_path):
+        # Backup current production config
+        if os.path.exists(self.prod_config_path):
             import shutil
-            shutil.copy2(self.old_config_path, self.backup_path)
-            logger.info(f"✅ Old config backed up: {self.backup_path}")
+            backup_path = f"{self.config_dir}/heuristic_rules_backup_{self.timestamp}.json"
+            shutil.copy2(self.prod_config_path, backup_path)
+            logger.info(f"✅ Production config backed up: {backup_path}")
         
-        # Replace with new config
+        # Copy new config to production
         import shutil
-        shutil.move(self.new_config_path, self.old_config_path)
-        logger.info(f"✅ New config activated: {self.old_config_path}")
+        shutil.copy2(self.new_config_path, self.prod_config_path)
+        logger.info(f"✅ New config activated: {self.prod_config_path}")
         
-        # Remove retraining flag
+        # Copy metadata to production
+        if os.path.exists(self.new_metadata_path):
+            shutil.copy2(self.new_metadata_path, self.prod_metadata_path)
+            logger.info(f"✅ Metadata updated")
+        
+        # Remove retraining flag if exists
         flag_path = f"{self.config_dir}/retrain_heuristic.flag"
         if os.path.exists(flag_path):
             os.remove(flag_path)
             logger.info("✅ Retraining flag removed")
+    
+    def save_metadata(self, rules: dict, metrics: dict, training_info: dict) -> dict:
+        """Save comprehensive metadata JSON"""
+        logger.info("Saving metadata...")
+        
+        # Get previous config info
+        previous_config = None
+        if os.path.exists(self.prod_metadata_path):
+            try:
+                with open(self.prod_metadata_path, 'r') as f:
+                    prev_meta = json.load(f)
+                    previous_config = prev_meta.get('config_file', 'unknown')
+            except:
+                pass
+        
+        # Read drift report if exists
+        drift_info = {}
+        drift_files = [f for f in os.listdir('model_artifacts') if f.startswith('drift_report_heuristic_')]
+        if drift_files:
+            latest_drift = sorted(drift_files)[-1]
+            try:
+                with open(f"model_artifacts/{latest_drift}", 'r') as f:
+                    drift_data = json.load(f)
+                    drift_info = {
+                        'anomaly_rate_change': drift_data.get('metrics', {}).get('anomaly_rate_change'),
+                        'reasons': drift_data.get('reasons', [])
+                    }
+            except:
+                pass
+        
+        metadata = {
+            'model_name': 'heuristic_rules',
+            'config_file': f'heuristic_rules_{self.timestamp}.json',
+            'retrained_at': self.training_start_time.isoformat(),
+            'training_completed_at': self.training_end_time.isoformat(),
+            'training_duration_seconds': int((self.training_end_time - self.training_start_time).total_seconds()),
+            'training_data': {
+                'samples': training_info['samples'],
+                'date_range_start': training_info['date_range'][0],
+                'date_range_end': training_info['date_range'][1],
+                'training_days': self.training_days
+            },
+            'threshold_config': {
+                'method': 'percentile_based',
+                'percentile': self.percentile,
+                'rules': rules
+            },
+            'performance_metrics': metrics,
+            'drift_trigger': drift_info if drift_info else {'triggered_by': 'manual'},
+            'retrained_by': os.getenv('USER', 'system'),
+            'previous_config': previous_config,
+            'version': self.timestamp,
+            'status': 'active'
+        }
+        
+        # Save to timestamped file
+        with open(self.new_metadata_path, 'w') as f:
+            json.dump(metadata, f, indent=2)
+        
+        logger.info(f"✅ Metadata saved: {self.new_metadata_path}")
+        return metadata
     
     def run_retraining(self):
         """Execute complete retraining process"""
@@ -176,14 +254,21 @@ class HeuristicRetrainer:
         logger.info("HEURISTIC RULES RETRAINING")
         logger.info("="*60)
         
+        self.training_start_time = datetime.now()
+        
         try:
             # 1. Extract data
             df = self.extract_training_data()
+            
+            # Store date range for metadata
+            date_range = (df.index[0].isoformat() if hasattr(df.index[0], 'isoformat') else 'unknown',
+                         df.index[-1].isoformat() if hasattr(df.index[-1], 'isoformat') else 'unknown')
             
             if len(df) < 100:
                 logger.error("❌ Insufficient data for threshold calculation")
                 logger.info("Using default thresholds...")
                 rules = self.default_rules
+                metrics = {'note': 'using_defaults'}
             else:
                 # 2. Calculate new thresholds
                 rules = self.calculate_thresholds(df)
@@ -191,9 +276,11 @@ class HeuristicRetrainer:
                 # 3. Validate thresholds
                 metrics = self.validate_thresholds(df, rules)
             
-            # 4. Save new config
+            self.training_end_time = datetime.now()
+            
+            # 4. Save new config with timestamp
             config = {
-                'timestamp': datetime.now().isoformat(),
+                'timestamp': self.training_start_time.isoformat(),
                 'training_samples': len(df),
                 'training_days': self.training_days,
                 'percentile': self.percentile,
@@ -208,12 +295,25 @@ class HeuristicRetrainer:
             
             logger.info(f"✅ New config saved: {self.new_config_path}")
             
-            # 5. Hot swap
+            # 5. Save comprehensive metadata
+            training_info = {
+                'samples': len(df),
+                'date_range': date_range
+            }
+            metadata = self.save_metadata(rules, metrics, training_info)
+            
+            # 6. Hot swap
             self.hot_swap_config()
+            
+            # 7. Update database drift status
+            self.update_drift_status_db()
             
             logger.info("="*60)
             logger.info("✅ RETRAINING COMPLETE")
             logger.info("="*60)
+            logger.info(f"Config file: {os.path.basename(self.new_config_path)}")
+            logger.info(f"Metadata: {os.path.basename(self.new_metadata_path)}")
+            logger.info(f"Training duration: {metadata['training_duration_seconds']}s")
             logger.info("Heuristic detector will automatically load new rules")
             logger.info("on next detection cycle (within 10 seconds)")
             
@@ -224,6 +324,28 @@ class HeuristicRetrainer:
             import traceback
             traceback.print_exc()
             return False
+    
+    def update_drift_status_db(self):
+        """Update drift status in database after successful retraining"""
+        try:
+            conn = psycopg2.connect(**self.db_config)
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                UPDATE drift_status 
+                SET drift_detected = FALSE,
+                    status = 'retrained',
+                    message = 'Rules successfully updated',
+                    retraining_completed_at = %s
+                WHERE model_name = 'heuristic';
+            """, (self.training_end_time,))
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+            logger.info("✅ Database drift status updated")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not update database: {e}")
 
 
 if __name__ == "__main__":

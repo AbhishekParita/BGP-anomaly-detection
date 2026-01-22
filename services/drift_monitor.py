@@ -88,9 +88,11 @@ class DriftMonitor:
         self.stats = {
             'checks_performed': 0,
             'drifts_detected': 0,
-            'retraining_triggered': 0,
             'last_check': None
         }
+        
+        # Ensure model_artifacts directory exists
+        os.makedirs('model_artifacts', exist_ok=True)
         
     def connect_db(self):
         """Establish database connection"""
@@ -98,10 +100,50 @@ class DriftMonitor:
             self.conn = psycopg2.connect(**self.db_config)
             self.cursor = self.conn.cursor()
             logger.info("✅ Database connected")
+            self.create_drift_status_table()
             return True
         except Exception as e:
             logger.error(f"❌ Database connection failed: {e}")
             return False
+    
+    def create_drift_status_table(self):
+        """Create drift_status table if not exists"""
+        try:
+            self.cursor.execute("""
+                CREATE TABLE IF NOT EXISTS drift_status (
+                    id SERIAL PRIMARY KEY,
+                    model_name VARCHAR(50) UNIQUE NOT NULL,
+                    drift_detected BOOLEAN DEFAULT FALSE,
+                    detection_timestamp TIMESTAMP,
+                    drift_metrics JSONB,
+                    status VARCHAR(50) DEFAULT 'ok',
+                    message TEXT,
+                    retraining_approved BOOLEAN DEFAULT FALSE,
+                    retraining_started_at TIMESTAMP,
+                    retraining_completed_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    updated_at TIMESTAMP DEFAULT NOW()
+                );
+                
+                CREATE INDEX IF NOT EXISTS idx_drift_status_model ON drift_status(model_name);
+                CREATE INDEX IF NOT EXISTS idx_drift_status_detected ON drift_status(drift_detected);
+            """)
+            self.conn.commit()
+            logger.info("✅ Drift status table ready")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not create drift_status table: {e}")
+    
+    def count_pending_approvals(self) -> int:
+        """Count models with pending retraining approval"""
+        try:
+            self.cursor.execute("""
+                SELECT COUNT(*) FROM drift_status 
+                WHERE drift_detected = TRUE AND status = 'pending_approval';
+            """)
+            count = self.cursor.fetchone()[0]
+            return count
+        except:
+            return 0
     
     def calculate_baseline_metrics(self, model_name: str) -> Dict:
         """
@@ -292,15 +334,15 @@ class DriftMonitor:
         
         return result
     
-    def trigger_retraining(self, model_name: str, drift_info: Dict):
+    def save_drift_status(self, model_name: str, drift_info: Dict):
         """
-        Trigger model retraining
+        Save drift status for manual retraining approval
         
         Args:
-            model_name: Model to retrain
+            model_name: Model with drift detected
             drift_info: Drift detection information
         """
-        logger.info(f"🔄 Triggering retraining for {model_name}")
+        logger.warning(f"⚠️ Drift detected for {model_name} - Awaiting manual approval")
         
         # Save drift report
         report_path = f"model_artifacts/drift_report_{model_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
@@ -309,42 +351,54 @@ class DriftMonitor:
         
         logger.info(f"📝 Drift report saved: {report_path}")
         
-        # Create retraining flag file
-        flag_path = f"model_artifacts/retrain_{model_name}.flag"
-        with open(flag_path, 'w') as f:
-            f.write(json.dumps({
-                'timestamp': datetime.now().isoformat(),
-                'reason': 'drift_detected',
-                'drift_metrics': drift_info['metrics']
-            }, indent=2))
+        # Create drift status file (not retraining flag)
+        status_path = f"model_artifacts/drift_status_{model_name}.json"
+        status_data = {
+            'model': model_name,
+            'drift_detected': True,
+            'detection_timestamp': datetime.now().isoformat(),
+            'drift_metrics': drift_info['metrics'],
+            'reasons': drift_info['reasons'],
+            'status': 'pending_approval',
+            'retraining_approved': False,
+            'message': f'Drift detected and retraining is required'
+        }
         
-        logger.info(f"🚩 Retraining flag created: {flag_path}")
+        with open(status_path, 'w') as f:
+            json.dump(status_data, f, indent=2)
         
-        # Automatically trigger retraining script
+        logger.info(f"📊 Drift status saved: {status_path}")
+        
+        # Save to database
         try:
-            import subprocess
-            
-            # Run retraining script in background
-            script_path = f"retrain_{model_name}.py"
-            logger.info(f"🚀 Starting retraining script: {script_path}")
-            
-            # Use subprocess to run in background (non-blocking)
-            process = subprocess.Popen(
-                [sys.executable, script_path],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                cwd=os.path.dirname(os.path.dirname(__file__))  # Root directory
-            )
-            
-            logger.info(f"✅ Retraining process started (PID: {process.pid})")
-            logger.info(f"   Model will be automatically replaced when training completes")
-            logger.info(f"   Detection continues with current model until hot-swap")
-            
+            self.cursor.execute("""
+                INSERT INTO drift_status (model_name, drift_detected, detection_timestamp, drift_metrics, status, message)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (model_name) DO UPDATE SET
+                    drift_detected = EXCLUDED.drift_detected,
+                    detection_timestamp = EXCLUDED.detection_timestamp,
+                    drift_metrics = EXCLUDED.drift_metrics,
+                    status = EXCLUDED.status,
+                    message = EXCLUDED.message;
+            """, (
+                model_name,
+                True,
+                datetime.now(),
+                json.dumps(drift_info['metrics']),
+                'pending_approval',
+                f'Drift detected and retraining is required'
+            ))
+            self.conn.commit()
+            logger.info(f"✅ Drift status saved to database")
         except Exception as e:
-            logger.error(f"❌ Failed to start retraining script: {e}")
-            logger.info(f"   Please run manually: python retrain_{model_name}.py")
+            logger.warning(f"⚠️ Could not save to database: {e}")
         
-        self.stats['retraining_triggered'] += 1
+        logger.warning(f"🔔 Dashboard will show: 'Drift detected and retraining is required'")
+        logger.info(f"   Waiting for manual approval to start retraining")
+        logger.info(f"   Use CLI: python approve_retraining.py {model_name}")
+        logger.info(f"   Or use Dashboard button to approve retraining")
+        
+        self.stats['drifts_detected'] += 1
     
     def run_continuous(self):
         """Run drift monitoring continuously"""
@@ -368,14 +422,14 @@ class DriftMonitor:
                 # Check each model
                 for model_name in ['lstm', 'isolation_forest', 'heuristic']:
                     drift_result = self.detect_drift(model_name)
-                    
+                    save_drift_status
                     if drift_result['drift_detected']:
                         self.trigger_retraining(model_name, drift_result)
                 
                 self.stats['last_check'] = datetime.now().isoformat()
                 
                 logger.info(f"\n📊 Statistics:")
-                logger.info(f"   Checks performed: {self.stats['checks_performed']}")
+                logger.info(f"   Pending approvals: {self.count_pending_approvals()
                 logger.info(f"   Drifts detected: {self.stats['drifts_detected']}")
                 logger.info(f"   Retraining triggered: {self.stats['retraining_triggered']}")
                 

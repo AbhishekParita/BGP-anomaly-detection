@@ -198,6 +198,49 @@
             color: #ef4444;
         }
         
+        .drift-message {
+            font-size: 12px;
+            color: #94a3b8;
+            margin-top: 8px;
+            margin-bottom: 12px;
+        }
+        
+        .retrain-button {
+            background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-top: 8px;
+            display: inline-block;
+            width: 100%;
+        }
+        
+        .retrain-button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+        }
+        
+        .retrain-button:active {
+            transform: translateY(0);
+        }
+        
+        .retrain-button:disabled {
+            background: #334155;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .drift-metrics {
+            font-size: 11px;
+            color: #64748b;
+            margin-top: 8px;
+        }
+        
         .table-box {
             background: #1e293b;
             padding: 24px;
@@ -584,36 +627,35 @@
         
         async function updateDriftStatus() {
             try {
-                const drift = await fetch('http://localhost:8000/api/drift-status').then(r => r.json());
+                const driftArray = await fetch('http://localhost:8001/api/drift/status').then(r => r.json());
                 
-                // Create drift cards
                 const driftCards = document.getElementById('driftCards');
                 
-                const models = ['lstm', 'isolation_forest', 'heuristic'];
                 const modelNames = {
                     'lstm': 'LSTM Neural Network',
                     'isolation_forest': 'Isolation Forest',
                     'heuristic': 'Heuristic Rules'
                 };
                 
-                // Check for recent flags
-                const recentFlags = drift.drift_flags.filter(f => {
-                    const age = Date.now() - new Date(f.timestamp).getTime();
-                    return age < 24 * 60 * 60 * 1000; // Last 24 hours
-                });
-                
-                driftCards.innerHTML = models.map(model => {
-                    const hasFlag = recentFlags.some(f => f.model.toLowerCase() === model);
-                    const status = hasFlag ? 'drift-warning' : 'drift-healthy';
-                    const statusText = hasFlag ? 'Drift Detected' : 'Healthy';
+                driftCards.innerHTML = driftArray.map(modelData => {
+                    const hasDrift = modelData.drift_detected;
+                    const status = hasDrift ? 'drift-warning' : 'drift-healthy';
+                    const statusIcon = hasDrift ? '⚠️' : '✓';
+                    const statusText = hasDrift ? 'Drift Detected' : 'No Drift Detected';
+                    const message = modelData.message || (hasDrift ? 'Drift detected and retraining is required' : 'Model is healthy');
                     
                     return `
                         <div class="drift-card">
-                            <div class="drift-model-name">${modelNames[model]}</div>
-                            <div class="drift-status ${status}">${statusText}</div>
+                            <div class="drift-model-name">${modelNames[modelData.model_name]}</div>
+                            <div class="drift-status ${status}">${statusIcon} ${statusText}</div>
                             <div style="margin-top: 8px; font-size: 12px; color: #64748b;">
-                                ${hasFlag ? 'Retraining triggered' : 'Operating normally'}
+                                ${message}
                             </div>
+                            ${hasDrift ? `
+                                <button class="retrain-button" onclick="approveRetraining('${modelData.model_name}')">
+                                    🔄 Retrain Now
+                                </button>
+                            ` : ''}
                         </div>
                     `;
                 }).join('');
@@ -622,9 +664,42 @@
                 console.error('Drift status error:', error);
                 document.getElementById('driftCards').innerHTML = `
                     <div class="error-message">
-                        Unable to load drift monitoring data. Ensure database tables exist.
+                        Unable to load drift monitoring data. Ensure retraining API is running on port 8001.
                     </div>
                 `;
+            }
+        }
+        
+        async function approveRetraining(model) {
+            if (!confirm(`Are you sure you want to retrain the ${model.replace('_', ' ').toUpperCase()} model? This may take several minutes.`)) {
+                return;
+            }
+            
+            try {
+                const button = event.target;
+                button.disabled = true;
+                button.textContent = '⏳ Retraining...';
+                
+                const response = await fetch(`http://localhost:8001/api/retraining/approve/${model}`, {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    alert(`✓ Retraining started successfully for ${model}!\n\n${result.message}`);
+                    // Refresh drift status after 2 seconds
+                    setTimeout(updateDriftStatus, 2000);
+                } else {
+                    alert(`✗ Retraining failed: ${result.detail || 'Unknown error'}`);
+                    button.disabled = false;
+                    button.textContent = '🔄 Retrain Now';
+                }
+            } catch (error) {
+                console.error('Retraining error:', error);
+                alert(`✗ Error triggering retraining: ${error.message}`);
+                event.target.disabled = false;
+                event.target.textContent = '🔄 Retrain Now';
             }
         }
         
